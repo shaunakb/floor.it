@@ -1,0 +1,321 @@
+<html>
+  <head>
+    <title>Floor.it - Retail Space Planner</title>
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.4.1/jquery.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/js-cookie@beta/dist/js.cookie.min.js"></script>
+    <style>
+      body {
+        background-color: #add8e6
+      }
+
+      #gridDiv {
+        display:block;
+        float:left;
+        {% load static %}
+        {% if background_path %}
+        background-image: url({% static background_path %});
+        {% endif %}
+        background-size: 800px 520px;
+      }
+      #tools {
+        width: 200px;
+        float: left;
+        height: 500px;
+        padding-left: 50px;
+        padding-right: 50px;
+      }
+
+      button {
+        margin-top: 20px;
+        padding: 20px;
+        width: 100px;
+      }
+
+      #draw {
+        border-style: inset;
+      }
+
+      #category {
+        float: bottom;
+      }
+
+      .pharmacy {
+        fill: black;
+      }
+
+      .bakery {
+        fill: grey;
+      }
+
+      .appliances {
+        fill: blue;
+      }
+
+      .grocery {
+        fill: green;
+      }
+
+      .men {
+        fill: red;
+      }
+
+      .women {
+        fill: brown;
+      }
+
+      .children {
+        fill: purple;
+      }
+
+      .sport {
+        fill: pink
+      }
+
+      select {
+        width: 100px;
+      }
+
+      a {
+        text-align:center;
+      }
+
+    </style>
+  </head>
+  <body>
+    <div id="container">
+      <div id="gridDiv" style="width:800px;height:520px">
+        <svg id="frame" width="100%" height="100%" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <pattern id="smallGrid" width="10" height="10" patternUnits="userSpaceOnUse">
+              <path d="M 10 0 L 0 0 0 10" fill="none" stroke="gray" stroke-width="0.5"/>
+            </pattern>
+            <pattern id="grid" width="80" height="80" patternUnits="userSpaceOnUse">
+              <rect width="80" height="80" fill="url(#smallGrid)"/>
+              <path d="M 80 0 L 0 0 0 80" fill="none" stroke="gray" stroke-width="1"/>
+            </pattern>
+          </defs>
+          <rect width="100%" height="100%" fill="url(#grid)" />
+          <!-- Start lines -->
+        </svg>
+      </div>
+      <div id="tools">
+        <button id="draw" onclick="select('draw')">Add Line</button><br>
+        <button id="color" onclick="select('color')">Categorize</button>
+        <div id="subselect">
+          <select id="category">
+            <option>Pharmacy</option>
+            <option style="color: grey">Bakery</option>
+            <option style="color: blue">Appliances</option>
+            <option style="color: green">Grocery</option>
+            <option style="color: red">Men's</option>
+            <option style="color: brown">Women's</option>
+            <option style="color: purple">Children's</option>
+            <option style="color: pink">Sports</option>
+          </select>
+        </div>
+        <button id="del" onclick="select('del')">Delete</button>
+        <button id="clear" onclick="refresh()">Clear</button>
+        <button id="info" onclick="select('info')">Info</button>
+        <form method="POST" id="post-form">
+          {% csrf_token %}
+          <button id="save" type="submit">Save</button>
+
+        </form>
+        <a href="../image_upload">Upload your <br> own floorplan</a>
+      </div>
+    </div>
+
+
+    <script>
+    grid = document.getElementById("gridDiv");
+    frame = document.getElementById("frame");
+    window.lineState = false;
+    window.lineID = {{ lineID }};
+    window.squareID = 0;
+    window.mode = 'draw';
+    window.mouseDown = false;
+    window.counts = [0, 0, 0, 0, 0, 0, 0, 0];
+    classMap = ['pharmacy', 'bakery', 'appliances', 'grocery', 'men', 'women', 'children', 'sport'];
+    lines = {{% for key, value in lines %}
+              "{{ key }}": "{{ value }}",
+            {% endfor %}};
+    squares = {{% for key, value in squares %}
+              "{{ key }}": "{{ value }}",
+            {% endfor %}};
+    modes = ['draw', 'del', 'color', 'info'];
+    update()
+
+    function getCookie(name) {
+      var cookieValue = null;
+      if (document.cookie && document.cookie != '') {
+        var cookies = document.cookie.split(';');
+        for (var i = 0; i < cookies.length; i++) {
+            var cookie = jQuery.trim(cookies[i]);
+            // Does this cookie string begin with the name we want?
+            if (cookie.substring(0, name.length + 1) == (name + '=')) {
+                cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                break;
+            }
+          }
+        }
+      return cookieValue;
+    }
+
+    $.ajaxSetup({
+      beforeSend: function(xhr, settings) {
+        if (!(/^http:.*/.test(settings.url) || /^https:.*/.test(settings.url))) {
+            // Only send the token to relative URLs i.e. locally.
+            xhr.setRequestHeader("X-CSRFToken", getCookie('csrftoken'));
+        }
+      }
+    });
+
+    $(document).on('submit', '#post-form',function(e){
+      var csrftoken = Cookies.get('csrftoken');
+      $.ajax({
+        type:'POST',
+        url:'../save/',
+        data: JSON.stringify({"lines": JSON.stringify(lines), "squares": JSON.stringify(squares), "lineID": lineID}),
+        headers:{"HTTP_X_CSRF_TOKEN":csrftoken}
+      })
+    });
+
+    function refresh() {
+      r = confirm("Do you want to clear your floor plan?");
+      if (r) {
+        lines = {};
+        squares = {};
+        window.lineID = 0;
+        for (var count in window.counts) {
+          window.counts[count] = 0;
+        }
+        update();
+      }
+    }
+
+    function select(mode) {
+      window.mode = mode;
+      document.getElementById(mode).style.borderStyle = 'inset';
+      for (var m in modes) {
+        if (modes[m] != mode) {
+          document.getElementById(modes[m]).style.borderStyle = 'outset';
+        }
+      }
+    }
+
+    function getMousePos(grid, evt, roundKey) {
+      var rect = grid.getBoundingClientRect();
+      return {
+        x: round(evt.clientX - rect.left, roundKey),
+        y: round(evt.clientY - rect.top, roundKey)
+      };
+    }
+
+    function round(x, n) {
+      return Math.round(x / n) * n;
+    }
+
+    function deleteLine(n) {
+      if(n) {
+        delete lines[n.toString()];
+      }
+      update();
+    }
+
+    function deleteSquare(n) {
+      if (window.mode == 'del')
+      {
+        delete squares[n];
+      }
+      else if (window.mode == 'info') {
+        obj = JSON.parse(squares[n])
+        total = 0
+        for (var i in window.counts) {
+          total += window.counts[i];
+        }
+        percentage = 100*window.counts[obj[0]] / total
+        alert(`There are ${window.counts[obj[0]]} squares in the ${classMap[obj[0]]} department.\n` +
+              `This represents approximately ${percentage.toFixed(2)}% of the store's used area.`)
+      }
+      update();
+    }
+
+    function update(){
+      for (var count in window.counts) {
+        window.counts[count] = 0;
+      }
+      linesString = "";
+      squaresString = "";
+      for (var key in lines) {
+        obj = JSON.parse(lines[key]);
+        linesString += `<line x1="${obj[0]}" y1="${obj[1]}" x2="${obj[2]}" y2="${obj[3]}" style="stroke:#4b0082;stroke-width:6" onclick="click(null, '${obj[4]}', 'line')" />\n`;
+      }
+      for (var key in squares) {
+        obj = JSON.parse(squares[key]);
+        window.counts[obj[0]] += 1;
+        squaresString += `<rect class="${classMap[obj[0]]}" x="${obj[1]}" y="${obj[2]}" width="${obj[3]}" height="${obj[4]}" onclick="deleteSquare('${obj[5]}')" onmouseover="dragDeleter('${obj[6]}');"/>\n`;
+      }
+      frame.innerHTML = frame.innerHTML.split("<!-- Start lines -->\n")[0] + "<!-- Start lines -->\n" +  linesString + squaresString;
+    }
+
+    function drawLine(evt) {
+      pos = getMousePos(grid, evt, 10);
+      if (window.lineState) {
+        lines[`${window.lineID}`] = JSON.stringify([window.prevX, window.prevY, pos.x, pos.y, window.lineID]);
+        window.lineID += 1;
+        update()
+      }
+      else {
+        window.prevX = pos.x;
+        window.prevY = pos.y;
+      }
+      window.lineState = !(window.lineState);
+
+    }
+
+    function encode(x, y) {
+      return x * 10000 + y;
+    }
+
+    function colorPixel(evt, n) {
+      pos = getMousePos(grid, evt, 1);
+      x = Math.floor(pos.x / n);
+      y = Math.floor(pos.y / n);
+      c = document.getElementById("category");
+      //category = c.options[c.selectedIndex].value;
+      category = parseInt(c.selectedIndex);
+      window.squareID = encode(x, y);
+      if (!(window.squareID in squares)) {
+        squares[`${window.squareID}`] = JSON.stringify([category, x*n, y*n, n, n, window.squareID, window.squareID]);
+      }
+      update();
+    }
+
+    function dragDeleter(n) {
+      if (window.mode == 'del' && window.mouseDown) {
+        deleteSquare(n);
+      }
+    }
+
+    function click(evt, n, type) {
+      if (window.mode == 'draw') {
+        drawLine(evt);
+      }
+      else if (window.mode == 'del') {
+        deleteLine(n);
+      }
+      else if (window.mode == 'color') {
+        colorPixel(evt, 10);
+      }
+      else if (window.mode == 'info') {
+
+      }
+    }
+
+    grid.addEventListener('click', function(evt){click(evt, null, null)});
+    grid.addEventListener('mousedown', function(evt){window.mouseDown = true});
+    grid.addEventListener('mouseup', function(evt){window.mouseDown = false});
+
+    </script>
+  </body>
+</html>
